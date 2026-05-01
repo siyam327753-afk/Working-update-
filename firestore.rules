@@ -1,0 +1,66 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // --- 1. GLOBAL HELPERS ---
+    
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- 2. VALIDATION BLUEPRINTS ---
+
+    function isValidWorkLog(data) {
+      return data.keys().hasAll(['uid', 'date', 'start', 'end', 'total', 'createdAt']) &&
+             data.keys().size() == 6 &&
+             data.uid == request.auth.uid &&
+             data.date is string && data.date.size() == 10 && // YYYY-MM-DD
+             data.start is string && data.start.size() <= 6 &&
+             data.end is string && data.end.size() <= 6 &&
+             data.total is number && data.total >= 0 && data.total <= 24 &&
+             data.createdAt == request.time;
+    }
+
+    // --- 3. THE MASTER GATE ---
+
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Work Logs Collection
+    match /logs/{logId} {
+      // Path variable hardening
+      allow get: if isSignedIn() && isValidId(logId) && existing().uid == request.auth.uid;
+      
+      // Secure List Query: Enforce ownership check in the rule itself
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+
+      // Creation: Strict schema + ownership + server timestamp
+      allow create: if isSignedIn() && 
+                      isValidId(logId) && 
+                      isValidWorkLog(incoming());
+
+      // Deletion: Only the owner can remove their logs
+      allow delete: if isSignedIn() && 
+                       isValidId(logId) && 
+                       existing().uid == request.auth.uid;
+
+      // Immutability: No updates allowed (Delete and recreate to fix errors)
+      allow update: if false;
+    }
+  }
+}

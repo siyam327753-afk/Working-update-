@@ -1,0 +1,6 @@
+{
+  "name": "Work Tracker",
+  "description": "A daily work hour logger with Firebase authentication and real-time history tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
